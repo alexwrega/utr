@@ -1,0 +1,53 @@
+# --- Secrets: never commit these ---
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials.json
+service-account*.json
+secrets.json
+config.local.*
+.netrc
+
+# --- UTR-specific secrets and restricted data ---
+# Engage API approval emails contain the client secret in plain text
+*.pdf
+.utr-engage*
+# UTR session cookies
+*.cookies
+cookies*.txt
+cookies*.json
+# Scraped UTR data: UTR's terms forbid redistributing it
+captures/
+.utr-cache/
+*.csv
+*.json
+!tests/fixtures/*.json
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# --- Editors ---
+.vscode/
+.idea/
+*.swp
