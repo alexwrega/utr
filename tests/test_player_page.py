@@ -35,6 +35,20 @@ def masked_payload(**over: Any) -> dict[str, Any]:
         "ratingStatusSingles": "Rated",
         "ratingProgressSingles": 100.0,
         "ratingStatusDoubles": "Rated",
+        "gender": "Male",
+        "heightInches": 74,
+        "dominantHand": "Right-Handed",
+        "backhand": "Two-Handed",
+        "birthPlace": "Warsaw",
+        "displayCollegeProspectBadge": True,
+        "ratingChoice": "UTRRating",
+        "myUtrSingles": 11.0,
+        "myUtrSinglesDisplay": "11.xx",
+        "myUtrStatusSingles": "Rated",
+        "myUtrProgressSingles": 100.0,
+        "myUtrDoubles": 11.0,
+        "myUtrDoublesDisplay": "11.xx",
+        "myUtrStatusDoubles": "Rated",
         "threeMonthRating": 11.26,
         "threeMonthRatingChangeDetails": {"ratingDifference": 0.13, "changeDirection": "down"},
         "historicRatings": {"historicSinglesRating": None},
@@ -164,6 +178,44 @@ def test_history_ignores_doubles_and_undated_entries():
     history.append({"type": "WeeklyAverage_Singles", "date": "2026-09-07T00:00:00", "rating": None})
     page = extract(full_payload(extendedRatingProfile={"history": history, "eligibleResults": {}}))
     assert all(rating < 20 for _date, rating in page.history)
+
+
+def test_attributes_and_myutr_are_extracted():
+    page = extract(masked_payload())
+    assert (page.height_inches, page.dominant_hand, page.backhand) == (74, "Right-Handed", "Two-Handed")
+    assert page.birth_place == "Warsaw" and page.gender == "Male"
+    assert page.prospect_badge is True
+    assert page.rating_choice == "UTRRating"
+    # MyUTR uses its own field names and is masked alongside the headline rating.
+    assert page.my_singles.display == "11.xx" and page.my_singles.masked
+    assert page.my_singles.status == "Rated" and page.my_singles.progress == 100.0
+    assert page.my_doubles.progress is None  # absent in the payload, not invented
+
+
+def test_attributes_render_with_both_unit_systems():
+    html = render_html(extract(masked_payload()))
+    assert "6ft 2in (188 cm)" in html
+    assert "Right-Handed" in html and "Two-Handed" in html
+    assert "MyUTR singles" in html
+    assert "College prospect badge" in html
+    assert "display the UTR rating" in html
+
+
+def test_the_section_is_dropped_when_nothing_populates_it():
+    bare = masked_payload()
+    for k in ("heightInches", "dominantHand", "backhand", "birthPlace", "ratingChoice",
+              "myUtrSingles", "myUtrSinglesDisplay", "myUtrStatusSingles", "myUtrProgressSingles",
+              "myUtrDoubles", "myUtrDoublesDisplay", "myUtrStatusDoubles",
+              "singlesUtr", "singlesUtrDisplay", "doublesUtr", "doublesUtrDisplay"):
+        bare.pop(k, None)
+    assert "Ratings and attributes" not in render_html(extract(bare))
+
+
+def test_height_alone_is_enough_to_show_the_section():
+    page = extract(masked_payload(heightInches=68, dominantHand=None, backhand=None, birthPlace=None))
+    html = render_html(page)
+    assert "5ft 8in (173 cm)" in html
+    assert "Backhand" not in html  # absent means absent, never a dash
 
 
 # -------------------------------------------------------------------- rendering

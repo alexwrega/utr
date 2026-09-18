@@ -91,7 +91,7 @@ Unlike `utr-recruited-at`, **this runs without a session.** That matters because
 | Match volume by year | present | present |
 | Historic anchors, match results | listed as withheld, with the field and endpoint that holds them | filled in |
 
-Everything else — rating status and reliability, career result counts, how many matches feed the current rating, college, conference, Power 6 — comes through either way. Where the player is on a college roster, the page also reads UTR's published top six and shows which lineup position they project into, using the real rating when it has one and the three-month figure when the rating is masked.
+Everything else — rating status and reliability, career result counts, how many matches feed the current rating, college, conference, Power 6 — comes through either way. So do both rating systems (UTR and MyUTR, singles and doubles, each with its own status and reliability) and the physical profile UTR carries: height in both unit systems, dominant hand, backhand, birthplace. Masking applies to MyUTR exactly as it does to the headline rating. Where the player is on a college roster, the page also reads UTR's published top six and shows which lineup position they project into, using the real rating when it has one and the three-month figure when the rating is masked.
 
 Nothing is estimated in place of a withheld field. A masked rating is shown as masked, and the page names the endpoint that would resolve it.
 

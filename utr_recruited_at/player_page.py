@@ -83,6 +83,16 @@ class PlayerPage:
     recruiting_age: bool = False
     singles: Rating = field(default_factory=Rating)
     doubles: Rating = field(default_factory=Rating)
+    # UTR runs a second rating system, MyUTR, alongside the headline one.
+    my_singles: Rating = field(default_factory=Rating)
+    my_doubles: Rating = field(default_factory=Rating)
+    rating_choice: str | None = None
+    height_inches: int | None = None
+    dominant_hand: str | None = None
+    backhand: str | None = None
+    birth_place: str | None = None
+    gender: str | None = None
+    prospect_badge: bool = False
     three_month: float | None = None
     three_month_change: float | None = None
     historic_singles: float | None = None
@@ -130,6 +140,20 @@ def _rating(profile: dict[str, Any], kind: str) -> Rating:
         masked=bool(display and MASK_MARKER in display.lower()),
         status=profile.get(f"ratingStatus{suffix}"),
         progress=profile.get(f"ratingProgress{suffix}"),
+    )
+
+
+def _my_rating(profile: dict[str, Any], kind: str) -> Rating:
+    """The MyUTR figures, which use their own field names and are masked the same way."""
+    display = profile.get(f"myUtr{kind}Display")
+    display = str(display) if display is not None else None
+    raw = profile.get(f"myUtr{kind}")
+    return Rating(
+        display=display,
+        value=float(raw) if isinstance(raw, (int, float)) else None,
+        masked=bool(display and MASK_MARKER in display.lower()),
+        status=profile.get(f"myUtrStatus{kind}"),
+        progress=profile.get(f"myUtrProgress{kind}"),
     )
 
 
@@ -236,6 +260,15 @@ def extract(profile: dict[str, Any], fetched_at: str | None = None) -> PlayerPag
         recruiting_age=bool(profile.get("isCollegeRecruitingAge")),
         singles=singles,
         doubles=_rating(profile, "doubles"),
+        my_singles=_my_rating(profile, "Singles"),
+        my_doubles=_my_rating(profile, "Doubles"),
+        rating_choice=profile.get("ratingChoice"),
+        height_inches=profile.get("heightInches") or None,
+        dominant_hand=profile.get("dominantHand"),
+        backhand=profile.get("backhand"),
+        birth_place=profile.get("birthPlace"),
+        gender=profile.get("gender"),
+        prospect_badge=bool(profile.get("displayCollegeProspectBadge")),
         three_month=three_month,
         three_month_change=_three_month_change(profile),
         historic_singles=historic.get("historicSinglesRating"),
@@ -388,6 +421,11 @@ _STYLE = """
   thead th { color: var(--ink-3); font-weight: 500; border-bottom-color: var(--line-strong); }
   .table-scroll { overflow-x: auto; }
 
+  .attrs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px;
+           background: var(--line); border: 1px solid var(--line); margin-top: 20px; }
+  .attr { background: var(--surface); padding: 14px 16px; }
+  .attr .v { font-size: 17px; font-weight: 600; margin-top: 6px; letter-spacing: -0.01em; }
+
   .rows { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); margin-top: 20px; }
   .row { background: var(--surface-2); padding: 15px 18px; display: grid;
          grid-template-columns: 1fr auto; gap: 4px 18px; align-items: baseline; }
@@ -508,7 +546,7 @@ def _header(page: PlayerPage) -> str:
     ids = f"UTR player {page.player_id}"
     if page.profile_id:
         ids += f" · profile {page.profile_id}"
-    meta = [m for m in (page.location, page.nationality,
+    meta = [m for m in (page.location, page.nationality, page.gender,
                         f"Age band {page.age_range}" if page.age_range else None,
                         "Claimed profile" if page.claimed else "Unclaimed profile") if m]
     pills = []
@@ -516,6 +554,8 @@ def _header(page: PlayerPage) -> str:
         pills.append(("College recruiting", True))
     if page.recruiting_age:
         pills.append(("Recruiting age", True))
+    if page.prospect_badge:
+        pills.append(("College prospect badge", True))
     if page.is_pro:
         pills.append(("Pro", True))
     if page.college:
@@ -540,6 +580,72 @@ def _header(page: PlayerPage) -> str:
         f'<div class="pills">{pill_html}</div>'
         "</header>"
     )
+
+
+def _height(inches: int | None) -> str | None:
+    """UTR stores height in inches; most of its players are not American."""
+    if not inches:
+        return None
+    return f"{inches // 12}ft {inches % 12}in ({round(inches * 2.54)} cm)"
+
+
+def _profile_section(page: PlayerPage) -> str:
+    """Both rating systems side by side, then the physical attributes."""
+    rows = ""
+    for label, rating in (
+        ("Singles UTR", page.singles), ("Doubles UTR", page.doubles),
+        ("MyUTR singles", page.my_singles), ("MyUTR doubles", page.my_doubles),
+    ):
+        if not rating.display and rating.value is None:
+            continue
+        value = rating.display or f"{rating.value:.2f}"
+        progress = f"{rating.progress:.0f}%" if rating.progress is not None else "—"
+        rows += (f"<tr><th scope=\"row\">{_e(label)}</th><td>{_e(value)}</td>"
+                 f"<td>{_e(rating.status or '—')}</td><td>{_e(progress)}</td></tr>")
+
+    attrs = [(k, v) for k, v in (
+        ("Height", _height(page.height_inches)),
+        ("Plays", page.dominant_hand),
+        ("Backhand", page.backhand),
+        ("Birthplace", page.birth_place),
+    ) if v]
+
+    if not rows and not attrs:
+        return ""
+
+    table = ""
+    if rows:
+        choice = ""
+        if page.rating_choice:
+            system = "MyUTR" if "my" in page.rating_choice.lower() else "UTR"
+            choice = f" His profile is set to display the {system} rating (<code>{_e(page.rating_choice)}</code>)."
+        table = f"""<div class="table-scroll">
+      <table>
+        <caption>Both rating systems, with the status and reliability UTR reports for each.{choice}</caption>
+        <thead><tr><th scope="col">Rating</th><th scope="col">Value</th>
+          <th scope="col">Status</th><th scope="col">Reliability</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </div>"""
+
+    grid = ""
+    if attrs:
+        cells = "".join(
+            f'<div class="attr"><div class="eyebrow">{_e(k)}</div><div class="v">{_e(v)}</div></div>'
+            for k, v in attrs
+        )
+        grid = f'<div class="attrs">{cells}</div>'
+
+    lede = ("UTR carries two ratings per player and a short physical profile. Masking applies to "
+            "both rating systems alike." if page.singles.masked else
+            "UTR carries two ratings per player and a short physical profile.")
+    return f"""
+  <section>
+    <h2>Ratings and attributes</h2>
+    <p class="lede">{lede}</p>
+    {table}
+    {grid}
+  </section>"""
 
 
 def _trajectory_section(page: PlayerPage) -> str:
@@ -880,6 +986,7 @@ def render_html(page: PlayerPage, standalone: bool = True) -> str:
     {_side_card(page)}
   </div>
   {_kpis(page)}
+  {_profile_section(page)}
   {_trajectory_section(page)}
   {_volume_section(page)}
   {_college_section(page)}
