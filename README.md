@@ -23,7 +23,7 @@ uv venv --python 3.11 && uv pip install -e ".[dev]"
 
 ## Authentication
 
-Everything useful needs a signed-in session. Without one, UTR masks ratings (`12.xx`) and returns no history.
+Everything useful needs a signed-in session. Without one, UTR masks ratings (`12.xx`) and returns no history. The exception is [`utr-player-page`](#player-pages), which runs signed out and reports what was withheld instead of failing.
 
 1. Sign in at app.utrsports.net.
 2. Open DevTools → Application → Cookies → `https://app.utrsports.net` and copy the value of the `jwt` cookie.
@@ -70,6 +70,35 @@ If you'd rather not copy cookies, the fetching can run inside a browser tab wher
 4. When it's done, save the output of `JSON.stringify(__utr.capture())` to a file and run `utr-recruited-at --from-capture capture.json --target-utr 11.4`.
 
 The runner uses the same pacing as the CLI, and only the benchmark and newest entries per player leave the page. The Python side still applies every data-quality rule. Leave the tab open while it runs, and keep runs to a handful of schools.
+
+## Player pages
+
+`utr-player-page` renders any single player as a standalone HTML page — the profile as a scouting card rather than a row in a table.
+
+```bash
+utr-player-page 1475065
+utr-player-page "https://app.utrsports.net/profiles/1475065" --out joachim.html
+utr-player-page 970607 --fragment --out -        # no <html> skeleton, for embedding
+```
+
+Unlike `utr-recruited-at`, **this runs without a session.** That matters because it changes what the page can say, so the page says it per field:
+
+| | Signed out | Signed in |
+| --- | --- | --- |
+| Singles/doubles UTR | masked `11.xx`, rendered as a redaction with the 11.00–11.99 range stated | the real figure |
+| Rating trajectory | absent — listed under "what a session would unlock" | weekly line chart over the whole history |
+| Three-month rating | present (UTR leaves this one unmasked) | present |
+| Match volume by year | present | present |
+| Historic anchors, match results | listed as withheld, with the field and endpoint that holds them | filled in |
+
+Everything else — rating status and reliability, career result counts, how many matches feed the current rating, college, conference, Power 6 — comes through either way. Where the player is on a college roster, the page also reads UTR's published top six and shows which lineup position they project into, using the real rating when it has one and the three-month figure when the rating is masked.
+
+Nothing is estimated in place of a withheld field. A masked rating is shown as masked, and the page names the endpoint that would resolve it.
+
+Two details the page encodes that aren't obvious from the payload:
+
+- **The three-month direction.** UTR reports `changeDirection: "down"` alongside a *positive* `ratingDifference`; the sign runs opposite to the stated direction on every profile sampled. The direction field is treated as authoritative and the difference as a magnitude.
+- **Partial profiles are cached apart from complete ones.** A signed-out page run caches under `profiles_partial`, so it can never leave `utr-recruited-at` reading a masked profile as though it were real.
 
 ## Output
 

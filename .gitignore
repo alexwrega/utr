@@ -26,6 +26,7 @@ cookies*.json
 # Scraped UTR data: UTR's terms forbid redistributing it
 captures/
 .utr-cache/
+utr-player-*.html
 *.csv
 *.json
 !tests/fixtures/*.json

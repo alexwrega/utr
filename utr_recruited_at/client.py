@@ -276,9 +276,22 @@ class UTRClient:
 
     # -- public interface
 
-    def get_player_profile(self, player_id: int) -> dict[str, Any]:
-        """Profile with rating history. Cached 24h; retries 429s and history-less 200s."""
+    @staticmethod
+    def _is_complete(profile: dict[str, Any]) -> bool:
+        """A payload with real ratings and history, i.e. what a signed-in caller gets."""
+        return bool(singles_history(profile)) and "x" not in str(profile.get("singlesUtrDisplay") or "").lower()
+
+    def get_player_profile(self, player_id: int, strict: bool = True) -> dict[str, Any]:
+        """Profile with rating history. Cached 24h; retries 429s and history-less 200s.
+
+        `strict=False` also accepts what an unauthenticated caller gets — a masked rating
+        and no history — for callers that report that state rather than depend on it.
+        Partial payloads are cached apart from complete ones, so a signed-out run can
+        never leave the benchmark reading a masked profile as though it were real.
+        """
         cached = self._cache.get("profiles", str(player_id))
+        if cached is None and not strict:
+            cached = self._cache.get("profiles_partial", str(player_id))
         if cached is not None:
             return cached
 
@@ -286,17 +299,22 @@ class UTRClient:
             f"{API_BASE}/v1/player/{player_id}/profile",
             kind="profile",
             interval=PROFILE_INTERVAL_S,
-            valid=lambda p: isinstance(p, dict) and bool(singles_history(p)),
+            valid=(lambda p: isinstance(p, dict) and bool(singles_history(p)))
+            if strict
+            else (lambda p: isinstance(p, dict) and p.get("id") is not None),
             what=f"profile {player_id}",
         )
-        self._check_scale(player_id, profile)
-        self._cache.set("profiles", str(player_id), profile)
+        self._check_scale(player_id, profile, strict=strict)
+        complete = self._is_complete(profile)
+        self._cache.set("profiles" if complete else "profiles_partial", str(player_id), profile)
         return profile
 
     @staticmethod
-    def _check_scale(player_id: int, profile: dict[str, Any]) -> None:
+    def _check_scale(player_id: int, profile: dict[str, Any], strict: bool = True) -> None:
         display = str(profile.get("singlesUtrDisplay") or "")
         if "x" in display.lower():
+            if not strict:
+                return
             raise SessionExpiredError(
                 f"Profile {player_id} came back with a masked rating ({display!r}), which means "
                 "the request was not authenticated. Refresh the session cookie."
