@@ -52,6 +52,33 @@ SLICE_S = 1.0
 Log = Callable[[str], None]
 
 
+def browser_error(exc: Exception, what: str) -> UTRError:
+    """Turn a Playwright failure into something a person can act on.
+
+    Without this the CLI hands back a raw stack trace, which says nothing about
+    which of the handful of real causes it was.
+    """
+    text = str(exc)
+    first = text.splitlines()[0] if text else exc.__class__.__name__
+    if "ERR_CERT" in text or "ERR_SSL" in text:
+        return UTRError(
+            f"The browser rejected the TLS certificate while {what}. Something on the network is "
+            "intercepting HTTPS — usually a corporate proxy or a VPN. Import that proxy's CA "
+            "certificate into the browser profile, or run from a network that doesn't intercept. "
+            f"({first})"
+        )
+    if "Executable doesn't exist" in text or "Failed to launch" in text:
+        return UTRError(
+            "Chromium is not installed for Playwright. Run `playwright install chromium`, or point "
+            f"--browser at a Chrome you already have. ({first})"
+        )
+    if "ERR_NAME_NOT_RESOLVED" in text or "ERR_INTERNET_DISCONNECTED" in text or "ERR_PROXY" in text:
+        return UTRError(f"The browser could not reach the network while {what}. ({first})")
+    if "Timeout" in text or "timeout" in text:
+        return UTRError(f"The browser timed out while {what}. UTR may be slow or the page changed. ({first})")
+    return UTRError(f"The browser failed while {what}. ({first})")
+
+
 class RateLimited(UTRError):
     """UTR answered 429. The run stops; nothing is retried."""
 
@@ -203,7 +230,11 @@ class BrowserSession:
         launch: dict[str, Any] = {"headless": self._headless, "viewport": {"width": 1400, "height": 1000}}
         if self._executable:
             launch["executable_path"] = self._executable
-        self._ctx = self._pw.chromium.launch_persistent_context(str(self._dir), **launch)
+        try:
+            self._ctx = self._pw.chromium.launch_persistent_context(str(self._dir), **launch)
+        except Exception as exc:
+            self._pw.stop()
+            raise browser_error(exc, "starting the browser") from exc
         self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         self.page.set_default_timeout(NAV_TIMEOUT_MS)
         self.page.on("response", self._watch)
@@ -233,7 +264,10 @@ class BrowserSession:
 
     def wait_for_login(self, timeout_s: float, sleep: Callable[[float], None] = time.sleep) -> None:
         """Open the site and wait for the person to sign in by hand."""
-        self.page.goto(APP, wait_until="domcontentloaded")
+        try:
+            self.page.goto(APP, wait_until="domcontentloaded")
+        except Exception as exc:
+            raise browser_error(exc, f"opening {APP}") from exc
         if self.has_session():
             self._log("Signed in already (the browser profile kept the session).")
             return
@@ -248,19 +282,22 @@ class BrowserSession:
 
     def _json_via_page(self, url: str) -> Any:
         """Fetch from inside the tab, so it carries the tab's own session."""
-        return self.page.evaluate(
-            """async (u) => {
-                const r = await fetch(u, { credentials: 'include' });
-                if (r.status === 429) return { __status: 429 };
-                if (!r.ok) return { __status: r.status };
-                return await r.json();
-            }""",
-            url,
-        )
+        try:
+            return self.page.evaluate(
+                """async (u) => {
+                    const r = await fetch(u, { credentials: 'include' });
+                    if (r.status === 429) return { __status: 429 };
+                    if (!r.ok) return { __status: r.status };
+                    return await r.json();
+                }""",
+                url,
+            )
+        except Exception as exc:
+            raise browser_error(exc, f"fetching {url} from the page") from exc
 
     def _navigate_capturing(self, page_url: str, api_match: str) -> Any:
         """Open a page and keep the API response it requested; fall back to an in-page fetch."""
-        from playwright.sync_api import Error as PWError
+        from playwright.sync_api import TimeoutError as PWTimeout
 
         payload = None
         try:
@@ -274,9 +311,12 @@ class BrowserSession:
                 self.saw_429 = True
             elif response.ok:
                 payload = response.json()
-        except PWError:
-            # The SPA may serve the view from its own cache and never re-request.
+        except PWTimeout:
+            # The SPA may serve the view from its own cache and never re-request; the
+            # in-page fetch below covers that. Anything else is a real failure.
             pass
+        except Exception as exc:
+            raise browser_error(exc, f"loading {page_url}") from exc
         self._check_429(f"loading {page_url}")
         return payload
 

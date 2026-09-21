@@ -22,6 +22,7 @@ from utr_recruited_at.roster_scrape import (
     RateLimited,
     Target,
     already_captured,
+    browser_error,
     build_row,
     roster_targets,
     sample_delay,
@@ -224,6 +225,36 @@ def test_a_player_on_two_rosters_is_scraped_once(tmp_path):
 def test_masked_rows_are_flagged():
     row = build_row(1071, Target(9, "X"), masked_payload(id=9), "text")
     assert row["masked"] is True
+
+
+# --------------------------------------------------------------- browser failures
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # A network that intercepts HTTPS is the likeliest real-world cause.
+        ("Page.goto: net::ERR_CERT_AUTHORITY_INVALID at https://app.utrsports.net/",
+         "intercepting HTTPS"),
+        ("BrowserType.launch_persistent_context: Executable doesn't exist at /opt/chrome",
+         "playwright install chromium"),
+        ("Page.goto: net::ERR_NAME_NOT_RESOLVED", "could not reach the network"),
+        ("Timeout 45000ms exceeded.", "timed out"),
+        ("something nobody predicted", "The browser failed while"),
+    ],
+)
+def test_browser_failures_become_readable(raw, expected):
+    err = browser_error(RuntimeError(raw), "opening the roster")
+    assert isinstance(err, UTRError)
+    assert expected in str(err)
+    # The original first line is kept, so the real cause is never lost.
+    assert raw.splitlines()[0] in str(err)
+
+
+def test_browser_failures_do_not_leak_a_stack_trace():
+    err = browser_error(RuntimeError("Page.goto: net::ERR_CERT_AUTHORITY_INVALID\n  at frame.goto\n  at x"),
+                        "opening https://app.utrsports.net")
+    assert "\n" not in str(err)
 
 
 # ----------------------------------------------------------------------------- CLI
