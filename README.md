@@ -100,6 +100,43 @@ Two details the page encodes that aren't obvious from the payload:
 - **The three-month direction.** UTR reports `changeDirection: "down"` alongside a *positive* `ratingDifference`; the sign runs opposite to the stated direction on every profile sampled. The direction field is treated as authoritative and the difference as a magnitude.
 - **Partial profiles are cached apart from complete ones.** A signed-out page run caches under `profiles_partial`, so it can never leave `utr-recruited-at` reading a masked profile as though it were real.
 
+## Browser scraping, slowly
+
+`utr-scrape-roster` walks a roster in a real Chromium window signed in as you, opening each player's profile page one at a time.
+
+```bash
+uv pip install -e ".[scraper]" && playwright install chromium
+
+utr-scrape-roster 1071                                    # sign in when the window opens
+utr-scrape-roster 1071 1039 --classes fr,so --out caa.jsonl
+utr-scrape-roster "https://app.utrsports.net/college/1071" --max-players 5   # try a few first
+```
+
+The loop is: roster page → player page → keep what loaded → wait a uniform random **60–300s** → next player. You sign in by hand once; `--profile-dir` (default `~/.utr-browser`) keeps the session for later runs, so subsequent runs can use `--headless`.
+
+**What it keeps per player**, in order of trust:
+
+1. The `/v1/player/{id}/profile` response *the page itself requested*. Structured, complete and unmasked, because it is the signed-in app making the call. This is the record every figure comes from.
+2. The page's visible text, stored whole. Scraping UTR's DOM field-by-field would break on their next deploy, so nothing is parsed out of it — it is there for eyeballing, and for confirming the page rendered a real rating rather than a masked one.
+
+**Pacing.** `utr-recruited-at` pages the API at 5s and UTR rate-limited a run on 2026-09-13. This waits 15–60x longer between players, and `--min-delay` refuses anything under 30s. A single HTTP 429 anywhere ends the run; nothing is retried. Sleeps happen in one-second slices, so Ctrl-C lands immediately.
+
+**Nothing is lost.** Output is JSONL, appended and flushed per player. A run that dies, or that you stop, keeps everything up to that point, and rerunning skips what the file already holds. A player whose fetch failed is recorded as an error row and retried next run.
+
+**It feeds the rest of the tool.** Complete profiles are written into `~/.utr-cache` as they land, so `utr-player-page <id>` and `utr-recruited-at` use them without refetching. `--warm-cache-only` replays an existing capture file into the cache without opening a browser.
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--min-delay` / `--max-delay` | 60 / 300 | seconds between players, uniform random; under 30s is refused |
+| `--classes` | whole roster | `fr,so,jr,sr,gr` or `all` |
+| `--max-players N` | none | stop after N — use it for a first run |
+| `--profile-dir` | `~/.utr-browser` | Chromium profile holding your session |
+| `--browser PATH` | bundled | point at your own Chrome instead |
+| `--headless` | off | only works once the profile is signed in |
+| `--seed N` | none | reproducible delays, for a dry run |
+
+A roster of 10 players at 60–300s averages about 15 minutes. Budget accordingly, and keep runs to schools you actually need.
+
 ## Output
 
 **Per player:** school, name, class, recruited-at UTR, the actual snapshot date used, gap from the target date, current UTR, delta, years elapsed, annualised delta, flags, and an exclusion reason.

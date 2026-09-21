@@ -13,6 +13,7 @@ dev = ["pytest>=8"]
 [project.scripts]
 utr-recruited-at = "utr_recruited_at.cli:main"
 utr-player-page = "utr_recruited_at.page_cli:main"
+utr-scrape-roster = "utr_recruited_at.scrape_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
