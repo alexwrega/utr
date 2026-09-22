@@ -17,9 +17,27 @@ Years come from the roster's `rosterYear`, so nothing is hardcoded to a season. 
 
 ## Install
 
+Needs Python 3.11 or newer (`python3 --version`; on macOS, `brew install python@3.12` if yours is older).
+
+```bash
+git clone https://github.com/alexwrega/utr.git
+cd utr
+
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Or with [uv](https://docs.astral.sh/uv/), which the rest of this README assumes:
+
 ```bash
 uv venv --python 3.11 && uv pip install -e ".[dev]"
 ```
+
+The commands (`utr-recruited-at`, `utr-player-page`, `utr-scrape-roster`) are on your PATH once the
+venv is active. Without activating, call them by path: `.venv/bin/utr-player-page 1475065`.
+
+Add `.[scraper]` instead of `.[dev]` for the browser scraper, which also needs
+`playwright install chromium`.
 
 ## Authentication
 
